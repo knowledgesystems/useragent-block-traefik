@@ -1,3 +1,3 @@
-module github.com/agence-gaya/traefik-plugin-blockuseragent
+module github.com/knowledgesystems/useragent-block-traefik
 
 go 1.23

@@ -12,21 +12,30 @@ import (
 
 // Config holds the plugin configuration.
 type Config struct {
-	RegexAllow []string `json:"regexAllow,omitempty"`
-	Regex      []string `json:"regex,omitempty"`
+	RegexAllow     []string `json:"regexAllow,omitempty"`
+	Regex          []string `json:"regex,omitempty"`
+	StatusCode     int      `json:"statusCode,omitempty"`
+	ResponseMessage string  `json:"responseMessage,omitempty"`
 }
 
 // CreateConfig creates and initializes the plugin configuration.
 func CreateConfig() *Config {
-	return &Config{RegexAllow: make([]string, 0), Regex: make([]string, 0)}
+	return &Config{
+		RegexAllow:      make([]string, 0),
+		Regex:           make([]string, 0),
+		StatusCode:      http.StatusForbidden,
+		ResponseMessage: "",
+	}
 }
 
 // BlockUserAgent struct.
 type BlockUserAgent struct {
-	name         string
-	next         http.Handler
-	regexpsAllow []*regexp.Regexp
-	regexpsDeny  []*regexp.Regexp
+	name            string
+	next            http.Handler
+	regexpsAllow    []*regexp.Regexp
+	regexpsDeny     []*regexp.Regexp
+	statusCode      int
+	responseMessage string
 }
 
 // BlockUserAgentMessage struct.
@@ -61,11 +70,18 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		regexpsDeny[index] = re
 	}
 
+	statusCode := config.StatusCode
+	if statusCode == 0 {
+		statusCode = http.StatusForbidden
+	}
+
 	return &BlockUserAgent{
-		name:         name,
-		next:         next,
-		regexpsAllow: regexpsAllow,
-		regexpsDeny:  regexpsDeny,
+		name:            name,
+		next:            next,
+		regexpsAllow:    regexpsAllow,
+		regexpsDeny:     regexpsDeny,
+		statusCode:      statusCode,
+		responseMessage: config.ResponseMessage,
 	}, nil
 }
 
@@ -96,7 +112,10 @@ func (b *BlockUserAgent) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 					log.Printf("%s: %s", b.name, jsonMessage)
 				}
 
-				res.WriteHeader(http.StatusForbidden)
+				res.WriteHeader(b.statusCode)
+				if b.responseMessage != "" {
+					_, _ = res.Write([]byte(b.responseMessage))
+				}
 
 				return
 			}

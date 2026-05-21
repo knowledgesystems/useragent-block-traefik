@@ -12,10 +12,11 @@ import (
 
 // Config holds the plugin configuration.
 type Config struct {
-	RegexAllow     []string `json:"regexAllow,omitempty"`
-	Regex          []string `json:"regex,omitempty"`
-	StatusCode     int      `json:"statusCode,omitempty"`
-	ResponseMessage string  `json:"responseMessage,omitempty"`
+	RegexAllow      []string `json:"regexAllow,omitempty"`
+	Regex           []string `json:"regex,omitempty"`
+	PathRegex       []string `json:"pathRegex,omitempty"`
+	StatusCode      int      `json:"statusCode,omitempty"`
+	ResponseMessage string   `json:"responseMessage,omitempty"`
 }
 
 // CreateConfig creates and initializes the plugin configuration.
@@ -23,6 +24,7 @@ func CreateConfig() *Config {
 	return &Config{
 		RegexAllow:      make([]string, 0),
 		Regex:           make([]string, 0),
+		PathRegex:       make([]string, 0),
 		StatusCode:      http.StatusForbidden,
 		ResponseMessage: "",
 	}
@@ -34,6 +36,7 @@ type BlockUserAgent struct {
 	next            http.Handler
 	regexpsAllow    []*regexp.Regexp
 	regexpsDeny     []*regexp.Regexp
+	pathRegexps     []*regexp.Regexp
 	statusCode      int
 	responseMessage string
 }
@@ -51,6 +54,7 @@ type BlockUserAgentMessage struct {
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	regexpsAllow := make([]*regexp.Regexp, len(config.RegexAllow))
 	regexpsDeny := make([]*regexp.Regexp, len(config.Regex))
+	pathRegexps := make([]*regexp.Regexp, len(config.PathRegex))
 
 	for index, regex := range config.RegexAllow {
 		re, err := regexp.Compile(regex)
@@ -70,6 +74,15 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		regexpsDeny[index] = re
 	}
 
+	for index, regex := range config.PathRegex {
+		re, err := regexp.Compile(regex)
+		if err != nil {
+			return nil, fmt.Errorf("error compiling pathRegex %q: %w", regex, err)
+		}
+
+		pathRegexps[index] = re
+	}
+
 	statusCode := config.StatusCode
 	if statusCode == 0 {
 		statusCode = http.StatusForbidden
@@ -80,6 +93,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		next:            next,
 		regexpsAllow:    regexpsAllow,
 		regexpsDeny:     regexpsDeny,
+		pathRegexps:     pathRegexps,
 		statusCode:      statusCode,
 		responseMessage: config.ResponseMessage,
 	}, nil
@@ -87,6 +101,32 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 
 func (b *BlockUserAgent) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	if req != nil {
+		// Check path-based blocking first
+		for _, re := range b.pathRegexps {
+			if re.MatchString(req.URL.Path) {
+				message := &BlockUserAgentMessage{
+					Regex:      -1,
+					UserAgent:  req.UserAgent(),
+					RemoteAddr: req.RemoteAddr,
+					Host:       req.Host,
+					RequestURI: req.RequestURI,
+				}
+				jsonMessage, err := json.Marshal(message)
+
+				if err == nil {
+					log.Printf("%s: blocked path: %s", b.name, jsonMessage)
+				}
+
+				res.WriteHeader(b.statusCode)
+				if b.responseMessage != "" {
+					_, _ = res.Write([]byte(b.responseMessage))
+				}
+
+				return
+			}
+		}
+
+		// Check User-Agent based blocking
 		userAgent := req.UserAgent()
 
 		for _, re := range b.regexpsAllow {

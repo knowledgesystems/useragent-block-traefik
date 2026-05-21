@@ -1,9 +1,8 @@
-# Block User-Agent
+# Block User-Agent & Path
 
 [![Build Status](https://github.com/knowledgesystems/useragent-block-traefik/workflows/Main/badge.svg?branch=master)](https://github.com/knowledgesystems/useragent-block-traefik/actions)
 
-Block User-Agent is a middleware plugin for [Traefik](https://github.com/traefik/traefik) which sends an HTTP error
-response when the requested HTTP User-Agent header matches one of the configured [regular expressions](https://github.com/google/re2/wiki/Syntax).
+A middleware plugin for [Traefik](https://github.com/traefik/traefik) that blocks HTTP requests based on User-Agent headers and/or URL paths matching configured [regular expressions](https://github.com/google/re2/wiki/Syntax).
 
 ## Configuration Options
 
@@ -11,8 +10,15 @@ response when the requested HTTP User-Agent header matches one of the configured
 |-------------------|----------|-------------|-----------------------------------------------------------------------------|
 | `regex`           | []string | `[]`        | Deny list — requests with a matching User-Agent are blocked                 |
 | `regexAllow`      | []string | `[]`        | Allow list — matching User-Agents bypass the deny list (checked first)      |
+| `pathRegex`       | []string | `[]`        | Path deny list — requests with a matching URL path are blocked (takes priority over User-Agent rules) |
 | `statusCode`      | int      | `403`       | HTTP status code returned when a request is blocked                         |
 | `responseMessage` | string   | *(empty)*   | Response body returned when a request is blocked. Empty body if not set.    |
+
+### Evaluation Order
+
+1. **Path blocking** (`pathRegex`) is evaluated first. If the request path matches, the request is blocked immediately regardless of User-Agent.
+2. **User-Agent allow list** (`regexAllow`) is checked next. If the User-Agent matches, the request is allowed through.
+3. **User-Agent deny list** (`regex`) is checked last. If the User-Agent matches, the request is blocked.
 
 ## Static Configuration
 
@@ -24,30 +30,46 @@ response when the requested HTTP User-Agent header matches one of the configured
 
 ## Dynamic Configuration
 
-To configure the `Block User-Agent` plugin you should create a [middleware](https://docs.traefik.io/middlewares/overview/) in
-your dynamic configuration. The following example blocks all requests with a User-Agent matching `\bTheAgent\b`, with an
+To configure the plugin you should create a [middleware](https://docs.traefik.io/middlewares/overview/) in
+your dynamic configuration.
+
+### Block by User-Agent
+
+The following example blocks all requests with a User-Agent matching `\bTheAgent\b`, with an
 exception for User-Agents that also contain `Allowed`.
 
 ```toml
-[http.routers]
-  [http.routers.my-router]
-    rule = "Host(`localhost`)"
-    middlewares = ["block-foo"]
-    service = "my-service"
-
-# Block all user agents containing TheAgent, except those also containing Allowed
 [http.middlewares]
   [http.middlewares.block-foo.plugin.blockuseragent]
     regexAllow = ["\bAllowed\b"]
     regex = ["\bTheAgent\b"]
     statusCode = 403
     responseMessage = "Access denied"
+```
 
-[http.services]
-  [http.services.my-service]
-    [http.services.my-service.loadBalancer]
-      [[http.services.my-service.loadBalancer.servers]]
-        url = "http://127.0.0.1"
+### Block by Path
+
+The following example blocks requests to specific API endpoints with a 404 response:
+
+```toml
+[http.middlewares]
+  [http.middlewares.block-paths.plugin.blockuseragent]
+    pathRegex = ["^/api/molecular-profiles/co-expressions/fetch$"]
+    statusCode = 404
+    responseMessage = "Not Found"
+```
+
+### Combined (User-Agent + Path)
+
+You can combine both User-Agent and path blocking in a single middleware:
+
+```toml
+[http.middlewares]
+  [http.middlewares.block-combined.plugin.blockuseragent]
+    regex = ["\bscraper\\b"]
+    pathRegex = ["^/api/expensive-endpoint$"]
+    statusCode = 403
+    responseMessage = "Forbidden"
 ```
 
 ## Kubernetes
@@ -63,6 +85,8 @@ additionalArguments:
 ```
 
 ### 2. Create a Traefik `Middleware` resource
+
+#### Block by User-Agent
 
 ```yaml
 apiVersion: traefik.io/v1alpha1
@@ -80,6 +104,24 @@ spec:
         - "^$"
       statusCode: 403
       responseMessage: "Access denied"
+```
+
+#### Block by Path
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: block-paths
+  namespace: my-namespace
+spec:
+  plugin:
+    blockuseragent:
+      pathRegex:
+        - "^/api/molecular-profiles/co-expressions/fetch$"
+        - "^/api/other-expensive-endpoint"
+      statusCode: 404
+      responseMessage: "Not Found"
 ```
 
 ### 3. Annotate the Ingress

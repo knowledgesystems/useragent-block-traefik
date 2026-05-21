@@ -53,6 +53,7 @@ func TestServeHTTP(t *testing.T) {
 		desc            string
 		regexAllow      []string
 		regexDeny       []string
+		pathRegex       []string
 		statusCode      int
 		responseMessage string
 		reqUserAgent    string
@@ -208,6 +209,43 @@ func TestServeHTTP(t *testing.T) {
 			expStatusCode:   http.StatusForbidden,
 			expBody:         "Access denied",
 		},
+		// Path blocking tests
+		{
+			desc:          "should block matching path",
+			pathRegex:     []string{`^/api/molecular-profiles/co-expressions/fetch$`},
+			reqUserAgent:  "Mozilla/5.0",
+			reqURI:        "http://localhost/api/molecular-profiles/co-expressions/fetch",
+			expNextCall:   false,
+			expStatusCode: http.StatusForbidden,
+		},
+		{
+			desc:          "should not block non-matching path",
+			pathRegex:     []string{`^/api/molecular-profiles/co-expressions/fetch$`},
+			reqUserAgent:  "Mozilla/5.0",
+			reqURI:        "http://localhost/api/studies",
+			expNextCall:   true,
+			expStatusCode: http.StatusOK,
+		},
+		{
+			desc:            "should block path with custom status code",
+			pathRegex:       []string{`^/api/molecular-profiles/co-expressions/fetch$`},
+			statusCode:      http.StatusNotFound,
+			responseMessage: "Not Found",
+			reqUserAgent:    "Mozilla/5.0",
+			reqURI:          "http://localhost/api/molecular-profiles/co-expressions/fetch",
+			expNextCall:     false,
+			expStatusCode:   http.StatusNotFound,
+			expBody:         "Not Found",
+		},
+		{
+			desc:          "path block takes priority over user-agent allow",
+			pathRegex:     []string{`^/blocked-path$`},
+			regexAllow:    []string{".*"},
+			reqUserAgent:  "Mozilla/5.0",
+			reqURI:        "http://localhost/blocked-path",
+			expNextCall:   false,
+			expStatusCode: http.StatusForbidden,
+		},
 	}
 
 	for _, test := range tests {
@@ -215,6 +253,7 @@ func TestServeHTTP(t *testing.T) {
 			cfg := &Config{
 				RegexAllow:      test.regexAllow,
 				Regex:           test.regexDeny,
+				PathRegex:       test.pathRegex,
 				StatusCode:      test.statusCode,
 				ResponseMessage: test.responseMessage,
 			}

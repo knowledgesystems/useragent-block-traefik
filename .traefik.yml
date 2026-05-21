@@ -1,5 +1,5 @@
-displayName: Block User-Agent
-summary: Blocks HTTP requests with a User-Agent matching the configured regex.
+displayName: Block User-Agent & Path
+summary: Blocks HTTP requests based on User-Agent or URL path matching configured regex patterns.
 type: middleware
 import: github.com/knowledgesystems/useragent-block-traefik
 compatibility: TODO
@@ -7,3 +7,5 @@ testData:
   Regex:
     - "\buseragent1\b|\buseragent2\b|\buseragent3\b|\buseragent4\b"
     - "\buseragent5\b|\buseragent6\b|\buseragent7\b|\buseragent8\b"
+  PathRegex:
+    - "^/api/blocked-endpoint$"

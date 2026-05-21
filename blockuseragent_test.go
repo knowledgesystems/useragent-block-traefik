@@ -1,4 +1,4 @@
-package traefik_plugin_blockuseragent
+package useragent_block_traefik
 
 import (
 	"context"
@@ -50,13 +50,16 @@ func TestNew(t *testing.T) {
 
 func TestServeHTTP(t *testing.T) {
 	tests := []struct {
-		desc          string
-		regexAllow    []string
-		regexDeny     []string
-		reqUserAgent  string
-		reqURI        string
-		expNextCall   bool
-		expStatusCode int
+		desc            string
+		regexAllow      []string
+		regexDeny       []string
+		statusCode      int
+		responseMessage string
+		reqUserAgent    string
+		reqURI          string
+		expNextCall     bool
+		expStatusCode   int
+		expBody         string
 	}{
 		{
 			desc:          "should return forbidden status",
@@ -184,13 +187,36 @@ func TestServeHTTP(t *testing.T) {
 			expNextCall:   true,
 			expStatusCode: http.StatusOK,
 		},
+		{
+			desc:            "should return custom status code",
+			regexAllow:      nil,
+			regexDeny:       []string{"\\bagent1\\b"},
+			statusCode:      http.StatusTooManyRequests,
+			reqUserAgent:    "agent1",
+			reqURI:          "http://localhost/test",
+			expNextCall:     false,
+			expStatusCode:   http.StatusTooManyRequests,
+		},
+		{
+			desc:            "should return custom response message",
+			regexAllow:      nil,
+			regexDeny:       []string{"\\bagent1\\b"},
+			responseMessage: "Access denied",
+			reqUserAgent:    "agent1",
+			reqURI:          "http://localhost/test",
+			expNextCall:     false,
+			expStatusCode:   http.StatusForbidden,
+			expBody:         "Access denied",
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
 			cfg := &Config{
-				RegexAllow: test.regexAllow,
-				Regex:      test.regexDeny,
+				RegexAllow:      test.regexAllow,
+				Regex:           test.regexDeny,
+				StatusCode:      test.statusCode,
+				ResponseMessage: test.responseMessage,
 			}
 
 			nextCall := false
@@ -216,6 +242,10 @@ func TestServeHTTP(t *testing.T) {
 
 			if recorder.Result().StatusCode != test.expStatusCode {
 				t.Errorf("got status code %d, want %d", recorder.Code, test.expStatusCode)
+			}
+
+			if test.expBody != "" && recorder.Body.String() != test.expBody {
+				t.Errorf("got body %q, want %q", recorder.Body.String(), test.expBody)
 			}
 		})
 	}
